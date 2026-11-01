@@ -13,11 +13,18 @@ import {
   seatsLeft,
 } from '../src/domain/inventory.js';
 import { DomainError } from '../src/domain/errors.js';
+import { newId, newReference } from '../src/domain/ids.js';
 
 const throwsCode = (fn, code) =>
   assert.throws(fn, (error) => error instanceof DomainError && error.code === code);
 
 describe('inventory', () => {
+  it('creates secure ids and readable references', () => {
+    assert.match(newId(), /^[0-9a-f-]{36}$/i);
+    assert.match(newReference(), /^[A-Z2-9]{8}$/);
+    throwsCode(() => newReference(3), 'VALIDATION');
+  });
+
   let store;
   let event;
   let tier;
@@ -46,7 +53,12 @@ describe('inventory', () => {
     });
 
     it('cannot publish an event with no tiers', () => {
-      const empty = createEvent(store, { title: 'Empty', city: 'Abuja', startsAt: '2026-12-06' });
+      const empty = createEvent(store, {
+        title: 'Empty',
+        city: 'Abuja',
+        startsAt: '2026-12-06',
+        organizerId: 'org-1',
+      });
       throwsCode(() => publishEvent(store, empty.id), 'INVALID_STATE');
       assert.equal(publishEvent(store, event.id).status, 'published');
     });
@@ -62,8 +74,12 @@ describe('inventory', () => {
 
     it('rejects a booking bigger than the seats left, and changes nothing', () => {
       bookTickets(store, tier.id, 'ada', 2);
+      const bookingCount = store.bookings.size;
+      const referenceCount = store.bookingsByReference.size;
       throwsCode(() => bookTickets(store, tier.id, 'bayo', 2), 'SOLD_OUT');
       assert.equal(seatsLeft(tier), 1);
+      assert.equal(store.bookings.size, bookingCount);
+      assert.equal(store.bookingsByReference.size, referenceCount);
     });
 
     it('lets the last ticket be booked, then reports sold out', () => {
@@ -76,6 +92,12 @@ describe('inventory', () => {
       for (const bad of [0, -1, 1.5, 11, '2', undefined]) {
         throwsCode(() => bookTickets(store, tier.id, 'ada', bad), 'VALIDATION');
       }
+    });
+
+    it('validates the attendee before changing inventory', () => {
+      throwsCode(() => bookTickets(store, tier.id, ' ', 1), 'VALIDATION');
+      assert.equal(tier.sold, 0);
+      assert.equal(store.bookings.size, 0);
     });
 
     it('finds a booking by its reference code', () => {

@@ -54,4 +54,4 @@ attempt('Ada cancels', () => cancelBooking(store, ada.reference));
 console.log(`Seats left: ${seatsLeft(tier)}`);
 
 const offer = offerNextOnWaitlist(store, tier.id);
-console.log('Next on the waitlist:', offer);
+console.log(`Next person in line: ${offer?.userId ?? 'no one'}`);

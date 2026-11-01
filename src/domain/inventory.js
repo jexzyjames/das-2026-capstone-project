@@ -6,6 +6,7 @@ import { newId, referenceCode } from './ids.js';
 import { Queue } from './waitlistQueue.js';
 import { DomainError } from './errors.js';
 import { summarizeEvent } from './eventSearch.js';
+import { parseISODate } from './dates.js';
 
 export const MAX_TICKETS_PER_BOOKING = 10;
 
@@ -49,10 +50,7 @@ function getEvent(store, eventId) {
 }
 
 export function createEvent(store, { title, city, venue = '', startsAt, organizerId }) {
-  const date = new Date(startsAt);
-  if (Number.isNaN(date.getTime())) {
-    throw new DomainError('VALIDATION', 'startsAt must be a valid date');
-  }
+  const date = new Date(parseISODate(startsAt, 'startsAt'));
   const event = {
     id: newId(),
     organizerId,

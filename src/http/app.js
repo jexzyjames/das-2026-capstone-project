@@ -4,6 +4,10 @@ import { createServer } from 'node:http';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '../domain/errors.js';
+import { createMemoryRepository } from '../repositories/memory.js';
+import { createBookingService } from '../services/bookingService.js';
+import { createEventService } from '../services/eventService.js';
+import { charge } from '../lib/mockPaymentGateway.js';
 import { Router } from './router.js';
 
 const DEFAULT_PUBLIC_DIRECTORY = fileURLToPath(new URL('../../public/', import.meta.url));
@@ -28,6 +32,70 @@ function sendJson(response, status, body) {
 
 function sendError(response, status, code, message) {
   sendJson(response, status, { error: { code, message } });
+}
+
+function statusForDomainError(error) {
+  const statuses = {
+    FORBIDDEN: 403,
+    INVALID_JSON: 400,
+    INVALID_PATH: 400,
+    INVALID_STATE: 409,
+    INVALID_TRANSITION: 409,
+    NOT_FOUND: 404,
+    PAYMENT_DECLINED: 402,
+    SOLD_OUT: 409,
+    UNAUTHORIZED: 401,
+    VALIDATION: 400,
+  };
+  return Object.hasOwn(statuses, error.code) ? statuses[error.code] : 400;
+}
+
+function registerApiRoutes(router, eventService, bookingService) {
+  const userIdFrom = (request) => request.headers['x-user-id'];
+
+  router.post('/api/events', async ({ request, body }) => ({
+    status: 201,
+    body: await eventService.create(body, userIdFrom(request)),
+  }));
+  router.post('/api/events/:id/tiers', async ({ request, params, body }) => ({
+    status: 201,
+    body: await eventService.addTier(params.id, body, userIdFrom(request)),
+  }));
+  router.post('/api/events/:id/publish', async ({ request, params }) => ({
+    body: await eventService.publish(params.id, userIdFrom(request)),
+  }));
+  router.get('/api/events', async ({ request }) => {
+    const query = new URL(request.url, 'http://localhost').searchParams;
+    const rawPrice = query.get('maxPriceCents');
+    let onlyAvailable;
+    if (query.has('onlyAvailable')) {
+      const value = query.get('onlyAvailable');
+      onlyAvailable = value === 'true' ? true : value === 'false' ? false : value;
+    }
+    return {
+      body: await eventService.list(
+        {
+          q: query.get('q') ?? undefined,
+          city: query.get('city') ?? undefined,
+          from: query.get('from') ?? undefined,
+          to: query.get('to') ?? undefined,
+          maxPriceCents: rawPrice === null ? undefined : rawPrice === '' ? Number.NaN : Number(rawPrice),
+          onlyAvailable,
+        },
+        query.get('sortBy') ?? 'date',
+      ),
+    };
+  });
+  router.post('/api/bookings', async ({ request, body }) => ({
+    status: 201,
+    body: await bookingService.book(body, userIdFrom(request)),
+  }));
+  router.post('/api/bookings/:reference/pay', async ({ request, params, body }) => ({
+    body: await bookingService.pay(params.reference, userIdFrom(request), body ?? {}),
+  }));
+  router.post('/api/bookings/:reference/cancel', async ({ request, params }) => ({
+    body: await bookingService.cancel(params.reference, userIdFrom(request)),
+  }));
 }
 
 async function readJsonBody(request) {
@@ -102,10 +170,19 @@ async function servePublicFile(response, pathname, publicDirectory, method) {
   }
 }
 
-export function createAppServer({ router = new Router(), publicDirectory = DEFAULT_PUBLIC_DIRECTORY } = {}) {
+export function createAppServer({
+  router = new Router(),
+  publicDirectory = DEFAULT_PUBLIC_DIRECTORY,
+  repository = createMemoryRepository(),
+  paymentGateway = { charge },
+} = {}) {
+  const eventService = createEventService(repository);
+  const bookingService = createBookingService(repository, paymentGateway);
+
   if (!router.match('GET', '/health')) {
     router.get('/health', () => ({ status: 200, body: { status: 'ok' } }));
   }
+  registerApiRoutes(router, eventService, bookingService);
 
   return createServer(async (request, response) => {
     try {
@@ -129,9 +206,10 @@ export function createAppServer({ router = new Router(), publicDirectory = DEFAU
         return;
       }
       if (error instanceof DomainError) {
-        sendError(response, 400, error.code, error.message);
+        sendError(response, statusForDomainError(error), error.code, error.message);
         return;
       }
+      console.error('Unhandled request error:', error);
       sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
     }
   });

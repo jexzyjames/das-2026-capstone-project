@@ -36,6 +36,30 @@ function requireWholeNumber(value, field, min) {
   return value;
 }
 
+function isValidISODate(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const monthLength = [
+    31,
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ][month - 1];
+  return month >= 1 && month <= 12 && day >= 1 && day <= monthLength && !Number.isNaN(new Date(value).getTime());
+}
+
 function getTier(store, tierId) {
   const tier = store.tiers.get(tierId);
   if (!tier) throw new DomainError('NOT_FOUND', 'Ticket tier not found');
@@ -48,11 +72,15 @@ function getEvent(store, eventId) {
   return event;
 }
 
-export function createEvent(store, { title, city, venue = '', startsAt, organizerId }) {
-  const date = new Date(startsAt);
-  if (Number.isNaN(date.getTime())) {
-    throw new DomainError('VALIDATION', 'startsAt must be a valid date');
+export function createEvent(store, input) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new DomainError('VALIDATION', 'Event details must be an object');
   }
+  const { title, city, venue = '', startsAt, organizerId } = input;
+  if (!isValidISODate(startsAt)) {
+    throw new DomainError('VALIDATION', 'startsAt must be a valid ISO date or date-time');
+  }
+  const date = new Date(startsAt);
   const event = {
     id: newId(),
     organizerId,
@@ -67,8 +95,12 @@ export function createEvent(store, { title, city, venue = '', startsAt, organize
   return event;
 }
 
-export function addTier(store, eventId, { name, priceCents, capacity }) {
+export function addTier(store, eventId, input) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new DomainError('VALIDATION', 'Tier details must be an object');
+  }
   const event = getEvent(store, eventId);
+  const { name, priceCents, capacity } = input;
 
   const tier = {
     id: newId(),
@@ -91,6 +123,12 @@ export function publishEvent(store, eventId) {
     throw new DomainError('INVALID_STATE', 'Add at least one ticket tier before publishing');
   }
   event.status = 'published';
+  return event;
+}
+
+export function unpublishEvent(store, eventId) {
+  const event = getEvent(store, eventId);
+  event.status = 'draft';
   return event;
 }
 

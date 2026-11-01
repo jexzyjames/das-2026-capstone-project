@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeSort } from '../src/domain/sorting.js';
+import { DomainError } from '../src/domain/errors.js';
 
 describe('mergeSort', () => {
   it('sorts numbers ascending by default', () => {
@@ -10,6 +11,14 @@ describe('mergeSort', () => {
   it('handles empty and single-item arrays', () => {
     assert.deepEqual(mergeSort([]), []);
     assert.deepEqual(mergeSort([42]), [42]);
+  });
+
+  it('rejects invalid input with VALIDATION', () => {
+    assert.throws(() => mergeSort(null), (error) => error instanceof DomainError && error.code === 'VALIDATION');
+    assert.throws(
+      () => mergeSort([1, 2], null),
+      (error) => error instanceof DomainError && error.code === 'VALIDATION',
+    );
   });
 
   it('does not change the original array', () => {

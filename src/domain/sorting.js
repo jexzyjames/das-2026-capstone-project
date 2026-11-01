@@ -1,3 +1,5 @@
+import { DomainError } from './errors.js';
+
 // Merge sort: O(n log n) in every case, and STABLE.
 // Stable means items that compare equal keep their original order. That matters
 // when you sort by date and want events on the same day to stay in title order.
@@ -6,6 +8,12 @@ const defaultCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 // Returns a new array. The input is never modified.
 export function mergeSort(items, compare = defaultCompare) {
+  if (!Array.isArray(items)) {
+    throw new DomainError('VALIDATION', 'items must be an array');
+  }
+  if (typeof compare !== 'function') {
+    throw new DomainError('VALIDATION', 'compare must be a function');
+  }
   if (items.length <= 1) return [...items];
 
   const middle = Math.floor(items.length / 2);
